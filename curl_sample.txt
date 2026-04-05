@@ -1,0 +1,6 @@
+curl 'https://cdnv-m1.boomstream.com/vod/size%3A713507379/duration%3A7303263/fragment%3A6250/hash%3A7b08ce39459a477e462c4d05d9d8eca5/id%3A35105.29443.1259353.95574437.150106.hls/time%3A0/data%3Ax/m43/2025/02/10/file.mp4/media-2.ts' \
+  -H 'accept: */*' \
+  -H 'origin: https://otus.ru' \
+  -H 'referer: https://otus.ru/learning/358135/' \
+  -H 'user-agent: Mozilla/5.0 Test' \
+  -H 'cookie: sessionid=abc; csrftoken=xyz'
