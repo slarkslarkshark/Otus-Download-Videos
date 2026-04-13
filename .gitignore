@@ -4,7 +4,6 @@ logs/
 .batch_work/
 .batch_work_debug/
 .batch_work_probe/
-discover_out/
 hls_download/
 ts_files/
 *.m3u8
@@ -13,3 +12,4 @@ ts_files/
 *.mp4
 *.log
 videos.list
+curl-list.txt
