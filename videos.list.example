@@ -1,7 +1,0 @@
-# output_name|ts_url|referer(optional)|origin(optional)|cookie(optional)
-#
-# If referer is the same for all videos, set DEFAULT_REFERER in .env
-# and leave column 3 empty.
-
-lesson_01_intro.mp4|https://cdnv-m1.boomstream.com/vod/size%3A123/duration%3A456/fragment%3A6250/hash%3Aabc/id%3Axxx.hls/time%3A0/data%3Ayyy/m43/2025/02/10/file.mp4/media-2.ts|https://otus.ru/learning/358135/
-lesson_02_topic.mp4|https://cdnv-m1.boomstream.com/vod/size%3A123/duration%3A456/fragment%3A6250/hash%3Aabc/id%3Axxx.hls/time%3A0/data%3Ayyy/m43/2025/02/10/file.mp4/media-2.ts|https://otus.ru/learning/358135/|https://otus.ru

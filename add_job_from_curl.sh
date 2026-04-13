@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  ./add_job_from_curl.sh [--from-list curl-list.txt] [--list videos.list] [--replace] [--print-only]
+  ./add_job_from_curl.sh [--from-list FILE] [--config-file config.yaml] [--replace] [--print-only]
 
 Description:
   Imports many videos only from file blocks in curl-list format.
@@ -25,15 +25,16 @@ Notes:
   - Blocks are usually separated by an empty line.
 
 Options:
-  --from-list FILE  Source file with name+curl blocks (default: curl-list.txt)
-  --list FILE       Target jobs file (default: videos.list)
+  --from-list FILE  Source file with name+curl blocks (overrides config key CURL_LIST_FILE)
+  --config-file FILE YAML config file (default: ./config.yaml)
   --replace         Truncate target file before writing new jobs
   --print-only      Print parsed lines without writing to videos.list
   -h, --help        Show help
 USAGE
 }
 
-SOURCE_LIST_FILE="curl-list.txt"
+CONFIG_FILE="config.yaml"
+SOURCE_LIST_FILE=""
 LIST_FILE="videos.list"
 REPLACE=false
 PRINT_ONLY=false
@@ -44,8 +45,8 @@ while [[ $# -gt 0 ]]; do
       SOURCE_LIST_FILE="${2:-}"
       shift 2
       ;;
-    --list)
-      LIST_FILE="${2:-}"
+    --config-file)
+      CONFIG_FILE="${2:-}"
       shift 2
       ;;
     --replace)
@@ -67,6 +68,40 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+yaml_get() {
+  local key="$1"
+  local default="$2"
+  local val=""
+  if [[ -f "$CONFIG_FILE" ]]; then
+    val="$(awk -v k="$key" '
+      /^[[:space:]]*#/ { next }
+      {
+        line=$0
+        sub(/[[:space:]]+#.*$/, "", line)
+        if (line ~ /^[[:space:]]*$/) next
+        if (line ~ "^[[:space:]]*" k "[[:space:]]*:") {
+          sub("^[[:space:]]*" k "[[:space:]]*:[[:space:]]*", "", line)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          if (line ~ /^".*"$/) {
+            line=substr(line, 2, length(line)-2)
+          }
+          print line
+          exit
+        }
+      }
+    ' "$CONFIG_FILE")"
+  fi
+  if [[ -n "$val" ]]; then
+    printf '%s' "$val"
+  else
+    printf '%s' "$default"
+  fi
+}
+
+if [[ -z "$SOURCE_LIST_FILE" ]]; then
+  SOURCE_LIST_FILE="$(yaml_get "CURL_LIST_FILE" "curl-list.txt")"
+fi
 
 trim() {
   local v="$1"

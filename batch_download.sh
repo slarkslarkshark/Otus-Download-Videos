@@ -9,66 +9,48 @@ Usage:
 Batch download and assemble multiple HLS videos.
 
 Input format (pipe-separated file):
-  output_name.mp4|https://.../media-2.ts|referer(optional)|origin(optional)|cookie(optional)|ua=...(optional)
+  output_name.mp4|https://.../media-2.ts|referer(required)|origin(optional)|cookie(optional)|ua=...(optional)
 
 Options:
-  --list FILE            Jobs file path (default: videos.list)
   --output-dir DIR       Final MP4 directory (default: downloads)
-  --work-dir DIR         Temp/log directory (default: logs)
+  --work-dir DIR         Logs/temp directory (default: logs)
   --skip-existing yes|no Skip jobs with existing output (default: yes)
-  --cleanup yes|no       Remove per-job temp dirs after success (default: yes)
   --reuse-segments yes|no Reuse already downloaded segment files (default: yes)
   --assemble-only yes|no  Skip network and run only ffmpeg on existing local files (default: no)
-  --env-file FILE        Env file to load (default: ./.env)
+  --config-file FILE     YAML config file to load (default: ./config.yaml)
   --dry-run              Validate and print jobs without network/download
   -h, --help             Show help
 
-Env defaults (optional):
-  BATCH_LIST_FILE=videos.list
-  BATCH_OUTPUT_DIR=downloads
-  BATCH_WORK_DIR=logs
-  BATCH_RETRIES=2
-  SKIP_EXISTING=yes
-  CLEANUP_WORKDIR=yes
-  REUSE_SEGMENTS=yes
-  ASSEMBLE_ONLY=no
-  DEFAULT_REFERER=...
-  DEFAULT_ORIGIN=...
-  DEFAULT_COOKIE=...
-  DEFAULT_USER_AGENT=...
+YAML config keys (optional):
+  BATCH_OUTPUT_DIR: downloads
+  BATCH_LOGS_DIR: logs
+  BATCH_RETRIES: 2
+  SKIP_EXISTING: yes
+  REUSE_SEGMENTS: yes
+  ASSEMBLE_ONLY: no
 USAGE
 }
 
-ENV_FILE=".env"
-CLI_LIST_FILE=""
+CONFIG_FILE="config.yaml"
 CLI_OUTPUT_DIR=""
-CLI_WORK_DIR=""
+CLI_LOGS_DIR=""
 CLI_SKIP_EXISTING=""
-CLI_CLEANUP_WORKDIR=""
 CLI_REUSE_SEGMENTS=""
 CLI_ASSEMBLE_ONLY=""
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --list)
-      CLI_LIST_FILE="$2"
-      shift 2
-      ;;
     --output-dir)
       CLI_OUTPUT_DIR="$2"
       shift 2
       ;;
     --work-dir)
-      CLI_WORK_DIR="$2"
+      CLI_LOGS_DIR="$2"
       shift 2
       ;;
     --skip-existing)
       CLI_SKIP_EXISTING="$2"
-      shift 2
-      ;;
-    --cleanup)
-      CLI_CLEANUP_WORKDIR="$2"
       shift 2
       ;;
     --reuse-segments)
@@ -79,8 +61,8 @@ while [[ $# -gt 0 ]]; do
       CLI_ASSEMBLE_ONLY="$2"
       shift 2
       ;;
-    --env-file)
-      ENV_FILE="$2"
+    --config-file)
+      CONFIG_FILE="$2"
       shift 2
       ;;
     --dry-run)
@@ -99,23 +81,44 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-fi
+yaml_get() {
+  local key="$1"
+  local default="$2"
+  local val=""
+  if [[ -f "$CONFIG_FILE" ]]; then
+    val="$(awk -v k="$key" '
+      /^[[:space:]]*#/ { next }
+      {
+        line=$0
+        sub(/[[:space:]]+#.*$/, "", line)
+        if (line ~ /^[[:space:]]*$/) next
+        if (line ~ "^[[:space:]]*" k "[[:space:]]*:") {
+          sub("^[[:space:]]*" k "[[:space:]]*:[[:space:]]*", "", line)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          if (line ~ /^".*"$/) {
+            line=substr(line, 2, length(line)-2)
+          }
+          print line
+          exit
+        }
+      }
+    ' "$CONFIG_FILE")"
+  fi
+  if [[ -n "$val" ]]; then
+    printf '%s' "$val"
+  else
+    printf '%s' "$default"
+  fi
+}
 
-LIST_FILE="${CLI_LIST_FILE:-${BATCH_LIST_FILE:-videos.list}}"
-OUTPUT_DIR="${CLI_OUTPUT_DIR:-${BATCH_OUTPUT_DIR:-downloads}}"
-WORK_DIR="${CLI_WORK_DIR:-${BATCH_WORK_DIR:-logs}}"
-RETRIES="${BATCH_RETRIES:-2}"
-SKIP_EXISTING="${CLI_SKIP_EXISTING:-${SKIP_EXISTING:-yes}}"
-CLEANUP_WORKDIR="${CLI_CLEANUP_WORKDIR:-${CLEANUP_WORKDIR:-yes}}"
-REUSE_SEGMENTS="${CLI_REUSE_SEGMENTS:-${REUSE_SEGMENTS:-yes}}"
-ASSEMBLE_ONLY="${CLI_ASSEMBLE_ONLY:-${ASSEMBLE_ONLY:-no}}"
-DEFAULT_REFERER="${DEFAULT_REFERER:-}"
-DEFAULT_ORIGIN="${DEFAULT_ORIGIN:-}"
-DEFAULT_COOKIE="${DEFAULT_COOKIE:-}"
-DEFAULT_USER_AGENT="${DEFAULT_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36}"
+LIST_FILE="videos.list"
+OUTPUT_DIR="${CLI_OUTPUT_DIR:-$(yaml_get "BATCH_OUTPUT_DIR" "downloads")}"
+LOGS_DIR="${CLI_LOGS_DIR:-$(yaml_get "BATCH_LOGS_DIR" "logs")}"
+RETRIES="$(yaml_get "BATCH_RETRIES" "2")"
+SKIP_EXISTING="${CLI_SKIP_EXISTING:-$(yaml_get "SKIP_EXISTING" "yes")}"
+REUSE_SEGMENTS="${CLI_REUSE_SEGMENTS:-$(yaml_get "REUSE_SEGMENTS" "yes")}"
+ASSEMBLE_ONLY="${CLI_ASSEMBLE_ONLY:-$(yaml_get "ASSEMBLE_ONLY" "no")}"
+FALLBACK_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
 
 is_yes() {
   case "${1,,}" in
@@ -431,7 +434,7 @@ require_bin awk
 require_bin sed
 require_bin grep
 
-mkdir -p "$OUTPUT_DIR" "$WORK_DIR"
+mkdir -p "$OUTPUT_DIR" "$LOGS_DIR"
 
 umask 077
 
@@ -452,7 +455,7 @@ TOTAL_JOBS="$(awk -F'|' '
 
 echo "Using list: $LIST_FILE"
 echo "Output dir: $OUTPUT_DIR"
-echo "Work dir: $WORK_DIR"
+echo "Logs dir: $LOGS_DIR"
 echo "Jobs total: $TOTAL_JOBS"
 echo ""
 
@@ -493,10 +496,7 @@ while IFS='|' read -r raw_output raw_ts raw_referer raw_origin raw_cookie raw_ex
   origin="$(trim "${raw_origin:-}")"
   cookie="$(trim "${raw_cookie:-}")"
   extra="$(trim "${raw_extra:-}")"
-  [[ -z "$referer" ]] && referer="$DEFAULT_REFERER"
-  [[ -z "$origin" ]] && origin="$DEFAULT_ORIGIN"
-  [[ -z "$cookie" ]] && cookie="$DEFAULT_COOKIE"
-  user_agent="$DEFAULT_USER_AGENT"
+  user_agent="$FALLBACK_USER_AGENT"
   if [[ -n "$extra" ]]; then
     if [[ "$extra" == ua=* ]]; then
       user_agent="${extra#ua=}"
@@ -506,19 +506,28 @@ while IFS='|' read -r raw_output raw_ts raw_referer raw_origin raw_cookie raw_ex
   fi
 
   if [[ -z "$referer" ]]; then
-    echo "[line $line_no][job $job_index/$TOTAL_JOBS] FAIL: referer is required (column 3 or DEFAULT_REFERER in .env)"
+    echo "[line $line_no][job $job_index/$TOTAL_JOBS] FAIL: referer is required (must come from curl block)"
     failed=$((failed + 1))
     continue
   fi
 
   output_path="$OUTPUT_DIR/$output_name"
   safe_job_name="$(sanitize_name "$output_name")"
-  job_dir="$WORK_DIR/${line_no}_${safe_job_name}"
+  job_dir="$LOGS_DIR/${line_no}_${safe_job_name}"
   job_log="$job_dir/job.log"
 
   if is_yes "$SKIP_EXISTING" && [[ -s "$output_path" ]]; then
     echo "[line $line_no][job $job_index/$TOTAL_JOBS] SKIP: exists -> $output_path"
     skipped=$((skipped + 1))
+    continue
+  fi
+
+  status_prefix="[line $line_no][job $job_index/$TOTAL_JOBS]"
+  echo "$status_prefix START: $output_name"
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "$status_prefix DRY-RUN: validated"
+    success=$((success + 1))
     continue
   fi
 
@@ -540,15 +549,6 @@ while IFS='|' read -r raw_output raw_ts raw_referer raw_origin raw_cookie raw_ex
       echo "Extra columns: ignored"
     fi
   } >> "$job_log"
-
-  status_prefix="[line $line_no][job $job_index/$TOTAL_JOBS]"
-  echo "$status_prefix START: $output_name"
-
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "$status_prefix DRY-RUN: validated"
-    success=$((success + 1))
-    continue
-  fi
 
   curl_headers=()
   build_curl_headers "$referer" "$origin" "$cookie" "$user_agent" curl_headers
@@ -653,10 +653,9 @@ while IFS='|' read -r raw_output raw_ts raw_referer raw_origin raw_cookie raw_ex
       -y "$tmp_out" >> "$job_log" 2>&1; then
     mv -f "$tmp_out" "$output_path"
     echo "$status_prefix DONE: $output_path"
+    echo ""
     success=$((success + 1))
-    if is_yes "$CLEANUP_WORKDIR"; then
-      rm -rf "$job_dir"
-    fi
+    rm -rf "$job_dir"
   else
     echo "$status_prefix FAIL: ffmpeg assembly failed (see $job_log)"
     echo "FAIL: ffmpeg assembly failed" >> "$job_log"

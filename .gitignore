@@ -1,11 +1,5 @@
-.env
 downloads/
 logs/
-.batch_work/
-.batch_work_debug/
-.batch_work_probe/
-hls_download/
-ts_files/
 *.m3u8
 *.ts
 *.mkv
