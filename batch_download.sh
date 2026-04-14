@@ -388,17 +388,26 @@ materialize_playlist_local() {
   local -n headers_ref="$5"
   local status_prefix="$6"
   local reuse_segments="$7"
+  local job_log_file="${8:-}"
   local total_segments
   local idx=0
   local line
   local out_seg
   local abs_seg
   local reused_count=0
+  local interactive=false
+  local log_every=50
 
   mkdir -p "$seg_dir"
   : > "$dst_playlist"
   total_segments="$(awk 'BEGIN{c=0} !/^#/ && $0 !~ /^[[:space:]]*$/ {c++} END{print c}' "$src_playlist")"
-  echo "${status_prefix} SEGMENTS: 0/${total_segments}"
+  if [[ -t 1 ]]; then
+    interactive=true
+    printf '\r%s SEGMENTS: 0/%s' "$status_prefix" "$total_segments"
+  else
+    echo "${status_prefix} SEGMENTS: 0/${total_segments}"
+  fi
+  [[ -n "$job_log_file" ]] && echo "${status_prefix} SEGMENTS: 0/${total_segments}" >> "$job_log_file"
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "$line" == \#* ]] || [[ -z "$line" ]]; then
@@ -413,19 +422,34 @@ materialize_playlist_local() {
     else
       if ! fetch_to_file "$line" "$out_seg" "$retries" headers_ref; then
         echo "Failed to download segment: $line"
+        [[ -n "$job_log_file" ]] && echo "Failed to download segment: $line" >> "$job_log_file"
         return 1
       fi
     fi
     abs_seg="$(readlink -f "$out_seg")"
     printf '%s\n' "$abs_seg" >> "$dst_playlist"
 
-    if [[ "$idx" -eq 1 || "$idx" -eq "$total_segments" || $((idx % 50)) -eq 0 ]]; then
+    if [[ "$interactive" == true ]]; then
+      # In interactive terminal update the same line for each segment.
+      printf '\r%s SEGMENTS: %s/%s' "$status_prefix" "$idx" "$total_segments"
+    elif [[ "$idx" -eq 1 || "$idx" -eq "$total_segments" || $((idx % log_every)) -eq 0 ]]; then
       echo "${status_prefix} SEGMENTS: ${idx}/${total_segments}"
+    fi
+
+    if [[ -n "$job_log_file" ]] && [[ "$idx" -eq 1 || "$idx" -eq "$total_segments" || $((idx % log_every)) -eq 0 ]]; then
+      echo "${status_prefix} SEGMENTS: ${idx}/${total_segments}" >> "$job_log_file"
     fi
   done < "$src_playlist"
 
   if [[ "$reused_count" -gt 0 ]]; then
-    echo "${status_prefix} SEGMENTS: reused ${reused_count}/${total_segments}"
+    if [[ "$interactive" == true ]]; then
+      printf '\r%s SEGMENTS: %s/%s (reused %s)\n' "$status_prefix" "$idx" "$total_segments" "$reused_count"
+    else
+      echo "${status_prefix} SEGMENTS: reused ${reused_count}/${total_segments}"
+    fi
+    [[ -n "$job_log_file" ]] && echo "${status_prefix} SEGMENTS: reused ${reused_count}/${total_segments}" >> "$job_log_file"
+  elif [[ "$interactive" == true ]]; then
+    printf '\n'
   fi
   return 0
 }
@@ -642,7 +666,7 @@ while IFS='|' read -r raw_output raw_ts raw_referer raw_origin raw_cookie raw_ex
 
     echo "$status_prefix STEP 3/4: downloading segments..."
     segments_dir="$job_dir/segments"
-    if ! materialize_playlist_local "$final_playlist" "$local_playlist" "$segments_dir" "$RETRIES" curl_headers "$status_prefix" "$REUSE_SEGMENTS" >> "$job_log" 2>&1; then
+    if ! materialize_playlist_local "$final_playlist" "$local_playlist" "$segments_dir" "$RETRIES" curl_headers "$status_prefix" "$REUSE_SEGMENTS" "$job_log"; then
       echo "$status_prefix FAIL: segment download failed (see $job_log)"
       echo "FAIL: segment download failed" >> "$job_log"
       failed=$((failed + 1))
