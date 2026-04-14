@@ -138,6 +138,13 @@ sanitize_name() {
   printf '%s' "$1" | sed -E 's#[^A-Za-z0-9._-]+#_#g'
 }
 
+job_id() {
+  local output_name="$1"
+  local ts_url="$2"
+  # Stable id across runs, independent of line order in videos.list.
+  printf '%s|%s' "$output_name" "$ts_url" | cksum | awk '{print $1}'
+}
+
 require_bin() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "ERROR: required command not found: $1"
@@ -513,8 +520,17 @@ while IFS='|' read -r raw_output raw_ts raw_referer raw_origin raw_cookie raw_ex
 
   output_path="$OUTPUT_DIR/$output_name"
   safe_job_name="$(sanitize_name "$output_name")"
-  job_dir="$LOGS_DIR/${line_no}_${safe_job_name}"
+  stable_id="$(job_id "$output_name" "$ts_url")"
+  job_dir="$LOGS_DIR/${safe_job_name}__${stable_id}"
   job_log="$job_dir/job.log"
+
+  # One-time migration from old line-based folders to stable folder naming.
+  if [[ ! -d "$job_dir" ]]; then
+    legacy_job_dir="$(find "$LOGS_DIR" -maxdepth 1 -type d -name "*_${safe_job_name}" | head -n 1 || true)"
+    if [[ -n "${legacy_job_dir:-}" && -d "$legacy_job_dir" ]]; then
+      mv "$legacy_job_dir" "$job_dir" 2>/dev/null || true
+    fi
+  fi
 
   if is_yes "$SKIP_EXISTING" && [[ -s "$output_path" ]]; then
     echo "[line $line_no][job $job_index/$TOTAL_JOBS] SKIP: exists -> $output_path"
